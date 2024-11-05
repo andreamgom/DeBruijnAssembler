@@ -1,7 +1,5 @@
 # Análisis y Reconstrucción de Secuencias de ADN usando Gráficos de De Bruijn
 
-Este proyecto implementa un análisis y reconstrucción de secuencias de ADN utilizando gráficos de De Bruijn a partir de fragmentos `k-mers`. Está diseñado para ejecutarse en un entorno de Jupyter Notebook, permitiendo seleccionar diferentes conjuntos de `k-mers` y analizar la conectividad del grafo resultante.
-
 ## Descripción General
 
 El proyecto utiliza gráficos de De Bruijn para representar y ensamblar fragmentos `k-mers` de una secuencia de ADN. La estructura permite verificar si existe un camino o ciclo Euleriano, lo que implica que es posible reconstruir la secuencia de ADN original. El proyecto también incluye herramientas para visualizar el grafo de De Bruijn y detectar posibles problemas de conectividad.
@@ -23,13 +21,27 @@ pip install networkx matplotlib ipywidgets
 
 ---
 
-## Funcionalidad del Proyecto
-
-El código se organiza en pasos, permitiendo ejecutar cada etapa individualmente en un entorno de Notebook para facilitar la comprensión y el análisis.
+## Explicación del Proyecto
 
 ### Paso 1: Selección del Conjunto de k-mers
 
 En la primera celda, definimos diferentes conjuntos de `k-mers`. Usamos un widget interactivo de `ipywidgets` para seleccionar el conjunto de `k-mers` que se desea analizar.
+
+```python
+import ipywidgets as widgets
+
+kmers_options = [
+    ["GACG", "GCTT", "TTAC", "ACTA", "TATG", "TGTG"],
+    ["AGTC", "GTCA", "TCAG", "CAGT", "AGTT", "GTTG"],
+    ["AGTT", "GTTG", "TTGA", "TGAC", "GACG", "ACGA", "CGAA", "GAAC", "AACG"]
+]
+
+kmer_selector = widgets.Dropdown(
+    options=[(f"Conjunto {i+1}", kmer_set) for i, kmer_set in enumerate(kmers_options)],
+    description='Seleccionar conjunto de k-mers:'
+)
+display(kmer_selector)
+```
 
 ### Paso 2: Construcción del Grafo de De Bruijn
 
@@ -47,53 +59,91 @@ def build_de_bruijn_graph(kmers):
 
 ### Paso 3: Verificación de Camino o Ciclo Euleriano
 
-La función `has_eulerian_path_or_cycle()` verifica si el grafo cumple con las condiciones para tener un camino o ciclo Euleriano. El camino Euleriano requiere un nodo de inicio y un nodo de fin con un desequilibrio de grado, mientras que el ciclo Euleriano requiere que todos los nodos tengan el mismo grado de entrada y salida.
+La función `has_eulerian_path_or_cycle()` verifica si el grafo cumple con las condiciones para tener un camino o ciclo Euleriano.
 
 ```python
 def has_eulerian_path_or_cycle(G):
-    ...
-    return graph_type, start_nodes, end_nodes
+    in_degrees = Counter(G.in_degree(n) for n in G.nodes())
+    out_degrees = Counter(G.out_degree(n) for n in G.nodes())
+
+    start_nodes = [n for n in G.nodes() if G.out_degree(n) - G.in_degree(n) == 1]
+    end_nodes = [n for n in G.nodes() if G.in_degree(n) - G.out_degree(n) == 1]
+    balanced_nodes = [n for n in G.nodes() if G.in_degree(n) == G.out_degree(n)]
+
+    if len(start_nodes) == 1 and len(end_nodes) == 1:
+        return "path", start_nodes[0], end_nodes[0]
+    elif not start_nodes and not end_nodes and len(balanced_nodes) == len(G.nodes()):
+        return "cycle", None, None
+    else:
+        return None, start_nodes, end_nodes
 ```
 
 ### Paso 4: Búsqueda del Camino o Ciclo Euleriano
 
-En esta sección, `find_eulerian_path_or_cycle()` busca un camino o ciclo Euleriano usando funciones de NetworkX si el grafo cumple con las condiciones adecuadas. Si se encuentra, se almacena como una lista de nodos visitados en el camino.
+En esta sección, `find_eulerian_path_or_cycle()` busca un camino o ciclo Euleriano usando funciones de NetworkX si el grafo cumple con las condiciones adecuadas.
 
 ```python
 def find_eulerian_path_or_cycle(G):
-    ...
-    return path, graph_type
+    graph_type, start_node, end_node = has_eulerian_path_or_cycle(G)
+    
+    if graph_type == "path":
+        return list(nx.eulerian_path(G, source=start_node)), graph_type
+    elif graph_type == "cycle":
+        return list(nx.eulerian_circuit(G)), graph_type
+    else:
+        return None, None
 ```
 
 ### Paso 5: Reconstrucción de la Secuencia de ADN
 
-La función `reconstruct_sequence_from_path()` reconstruye la secuencia original tomando el primer nodo del camino y agregando los caracteres finales de los siguientes nodos en el camino o ciclo.
+La función `reconstruct_sequence_from_path()` reconstruye la secuencia original.
 
 ```python
 def reconstruct_sequence_from_path(path):
-    ...
+    sequence = path[0][0]
+    for _, suffix in path:
+        sequence += suffix[-1]
     return sequence
 ```
 
 ### Paso 6: Análisis de Errores
 
-Si el grafo no tiene un camino o ciclo Euleriano, `analyze_errors()` identifica los nodos no balanceados y sugiere ajustes en los `k-mers` para mejorar la conectividad. Esto es útil para detectar problemas como fragmentos de ADN incompletos o errores en las secuencias.
+Si el grafo no tiene un camino o ciclo Euleriano, `analyze_errors()` identifica los nodos no balanceados.
 
 ```python
 def analyze_errors(G):
-    ...
+    in_degrees = {n: G.in_degree(n) for n in G.nodes()}
+    out_degrees = {n: G.out_degree(n) for n in G.nodes()}
+
+    unbalanced_nodes = [n for n in G.nodes() if in_degrees[n] != out_degrees[n]]
+    if unbalanced_nodes:
+        print("El grafo no tiene camino o ciclo Euleriano debido a nodos no balanceados.")
+        print(f"Nodos no balanceados: {unbalanced_nodes}")
+        print("Posibles problemas en la secuencia de entrada:")
+        for node in unbalanced_nodes:
+            print(f"Nodo {node} tiene {in_degrees[node]} aristas de entrada y {out_degrees[node]} aristas de salida.")
+        print("Prueba revisar o ajustar los k-mers para asegurar conectividad completa.")
+    else:
+        print("El grafo es balanceado pero puede estar desconectado.")
 ```
 
 ### Paso 7: Visualización del Grafo
 
-La función `visualize_graph()` permite representar el grafo de De Bruijn utilizando `matplotlib`. Muestra los nodos y las aristas con etiquetas, resaltando el camino o ciclo Euleriano, si existe.
+La función `visualize_graph()` permite representar el grafo de De Bruijn.
 
 ```python
 def visualize_graph(G, title="Grafo de De Bruijn"):
-    ...
+    pos = nx.spring_layout(G, k=1.5, seed=42)
+    plt.figure(figsize=(10, 6))
+    nx.draw(G, pos, with_labels=True, node_color="lightgreen", node_size=2000, 
+            font_size=10, font_weight="bold", edge_color="black", edgecolors='black', arrows=True)
+
+    edge_labels = nx.get_edge_attributes(G, 'label')
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8, font_color="darkred")
+
+    plt.title(title, fontsize=14, fontweight="bold", color="darkgreen")
     plt.show()
 ```
-
 ---
 
 ## Ejemplo de Uso
@@ -124,4 +174,3 @@ Este enfoque es adecuado para conjuntos de `k-mers` pequeños o medianos. Sin em
 ## Conclusión
 
 El proyecto proporciona una implementación para la construcción de gráficos de De Bruijn a partir de fragmentos de ADN, permitiendo reconstruir secuencias completas cuando los `k-mers` cumplen con los requisitos de conectividad. La herramienta es especialmente útil para la visualización y análisis de errores en datos de secuencias.
-
